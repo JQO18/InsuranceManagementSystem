@@ -1,15 +1,30 @@
+# new one (down)
+import os
+from dotenv import load_dotenv, find_dotenv
+
+# 1. Aggressively find and load the .env file BEFORE anything else
+env_path = find_dotenv()
+load_dotenv(env_path)
+
+# 2. Securely fetch credentials
+password = os.environ.get("DB_PASSWORD")
+Agent_password = os.environ.get("AGENT_PASSWORD")
+
+# Fail fast ONLY if the variable doesn't exist at all (allow blank passwords for local DBs)
+if password is None or Agent_password is None:
+    raise ValueError(f"Missing variables! Python found the .env file here: '{env_path}'. Check your variable names inside the file.")
+
+# 3. Load the rest of the application modules
 import mysql
 from mysql.connector import Error
 from prettytable import PrettyTable
-
 import Policy
 from Customer import Customers
-import random
+import secrets
+import bcrypt
 import re
 
-password = "Nikyl1978@"  # database connection password
-Agent_password = "Insurance@1515"  # common password for the agent login
-
+##### until here
 
 # Login page
 def login_input():
@@ -41,8 +56,11 @@ def back_but():
 
 # Customer registration
 def customer_registration():
-    # Generate a unique customer ID
-    customer_id = ''.join(random.sample('0123456789', 7))
+    # Generate a unique cryptographically secure customer ID (7 digits) with retry logic
+    while True:
+        customer_id = secrets.randbelow(9000000) + 1000000  ## changed
+        if check_customer_id(customer_id):
+            break
 
     # Ask for customer name
     print("\nRegistration Page")
@@ -113,13 +131,17 @@ def customer_registration():
         print("Invalid Nominee_relationship! Please enter a valid Nominee_relationship[2-80 characters]")
         nominee_relationship = input("Enter Nominee Relationship: ")
 
-    # Check if Customer exists
+    # Check if Customer exists ## changed the if part
     if check_customer(contact_number, email_id):
-        Customers(customer_id, customer_name, customer_age, customer_gender, contact_number, email_id, password_user,
+        
+        # SECURE: Hash the password using bcrypt with a generated salt
+        hashed_password = bcrypt.hashpw(password_user.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        Customers(customer_id, customer_name, customer_age, customer_gender, contact_number, email_id, hashed_password,
                   address,
                   nominee_name, nominee_relationship)
         insert_customer(customer_id, customer_name, customer_age, customer_gender, contact_number, email_id,
-                        password_user, address, nominee_name, nominee_relationship)
+                        hashed_password, address, nominee_name, nominee_relationship)
     else:
         print("Customer with same Phone number or emailId is already Present\n")
 
@@ -379,6 +401,44 @@ def check_customer(contact_number, email_id):
         print(f"Error: '{err}")
 
 
+# Check for duplicate customer ID
+def check_customer_id(customer_id):
+    connection = create_db_connection("localhost", "root", password, "mysql_python")
+    sql = """select * from customer_info where Customer_id = %s"""
+    val = (customer_id,)
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(sql, val)
+        result = cursor.fetchall()
+        if not result:
+            return True
+        else:
+            return False
+    except Error as err:
+        print(f"Error: '{err}")
+        return False
+
+
+# Check for duplicate policy ID #newadd
+def check_policy_id(policy_id):
+    connection = create_db_connection("localhost", "root", password, "mysql_python")
+    sql = """select * from policy_info where Policy_id = %s"""
+    val = (policy_id,)
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(sql, val)
+        result = cursor.fetchall()
+        if not result:
+            return True
+        else:
+            return False
+    except Error as err:
+        print(f"Error: '{err}")
+        return False
+
+
 # Inserting values into Customer table
 def insert_customer(customer_id, customer_name, customer_age, customer_gender, contact_number, email_id, password_user,
                     address, nominee_name, nominee_relationship):
@@ -417,8 +477,10 @@ def login_check(customer_Id, pass_word):
             print(f"{customer_Id} is not registered")
             back_but()
         else:
-            # If the password matches the one in the database, call the policy_page function with the customer ID as a parameter
-            if result[0][6] == pass_word:
+            # changed until the if part finish
+            # SECURE: Verify the inputted password against the stored bcrypt hash 
+            stored_hash = result[0][6].encode('utf-8')
+            if bcrypt.checkpw(pass_word.encode('utf-8'), stored_hash):
                 Policy.policy_page(customer_Id)
             else:
                 # If the password doesn't match, print the error message and call the back_but function
@@ -468,17 +530,18 @@ def display_customer(customer_id):
         print(f"Error: '{err}")
 
 
+## Changed
 # Function to display customer data in a table format
 def table(value):
     x = PrettyTable()
-    # Define the header fields for the table
+    # SECURE: Removed 'Password' from the output to prevent cleartext exposure on the terminal
     x.field_names = ["Customer_id", "Customer_Name", "Customer_Age", "Customer_Gender", "Contact_Number",
-                     "Email_Id", "Password", "Address", "Nominee_Name", "Nominee_relationship", "Policy_id",
+                     "Email_Id", "Address", "Nominee_Name", "Nominee_relationship", "Policy_id",
                      "Policy_Name", "Sum_Assured", "Premium", "Term"]
     for val in value:
-        # Add a row to the table for each data entry
+        # Add a row to the table for each data entry (skipping val[6] which is the password, and val[10] which is duplicate ID)
         x.add_row(
-            [val[0], val[1], val[2], val[3], val[4], val[5], val[6], val[7], val[8], val[9], val[10], val[12], val[13],
+            [val[0], val[1], val[2], val[3], val[4], val[5], val[7], val[8], val[9], val[11], val[12], val[13],
              val[14], val[15]])
     x.align = "l"
     print(x)
@@ -495,3 +558,4 @@ def agent_table(value):
         x.add_row([val[0], val[1], val[2], val[3], val[4], val[5], val[6], val[7], val[8], val[9]])
     x.align = "l"
     print(x)
+
