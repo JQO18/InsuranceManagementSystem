@@ -1,6 +1,11 @@
-from Methods import *
+from Methods import server, login_input
 
 if __name__ == "__main__":
-    server()  # creating Server and tables
+    # 1. Boot up the database and ensure secure tables exist
+    server()  
+    
+    # 2. Display the application header
     print("\nBajaj Finance - Online Insurance\n")
-    login_input()  # initial login
+    
+    # 3. Launch the main terminal menu
+    login_input()
